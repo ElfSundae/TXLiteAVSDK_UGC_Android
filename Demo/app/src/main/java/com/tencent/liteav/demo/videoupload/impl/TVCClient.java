@@ -11,17 +11,16 @@ import android.util.Log;
 import com.tencent.cos.xml.CosXmlService;
 import com.tencent.cos.xml.CosXmlServiceConfig;
 import com.tencent.cos.xml.common.Region;
-import com.tencent.cos.xml.common.ResumeData;
 import com.tencent.cos.xml.exception.CosXmlClientException;
 import com.tencent.cos.xml.exception.CosXmlServiceException;
+import com.tencent.cos.xml.listener.CosXmlProgressListener;
+import com.tencent.cos.xml.listener.CosXmlResultListener;
 import com.tencent.cos.xml.model.CosXmlRequest;
 import com.tencent.cos.xml.model.CosXmlResult;
-import com.tencent.cos.xml.model.CosXmlResultListener;
 import com.tencent.cos.xml.model.object.InitMultipartUploadRequest;
 import com.tencent.cos.xml.model.object.InitMultipartUploadResult;
 import com.tencent.cos.xml.model.object.PutObjectRequest;
-import com.tencent.cos.xml.transfer.MultipartUploadService;
-import com.tencent.qcloud.core.network.QCloudProgressListener;
+import com.tencent.cos.xml.transfer.UploadService;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -70,7 +69,7 @@ public class TVCClient {
     private String customKey = "";       //用于数据上报
 
     private CosXmlService cosService;
-    private MultipartUploadService multipartUploadHelper;
+    private UploadService cosUploadHelper;
 
     // 断点重传session本地缓存
     // 以文件路径作为key值得，存储的内容是<session, uploadId, fileLastModify, expiredTime>
@@ -225,8 +224,8 @@ public class TVCClient {
      * @return 成功或者失败
      */
     public void cancleUpload() {
-        if (multipartUploadHelper != null) {
-            multipartUploadHelper.cancel();
+        if (cosUploadHelper != null) {
+            cosUploadHelper.pause();
             busyFlag = false;
         }
     }
@@ -335,9 +334,7 @@ public class TVCClient {
             CosXmlServiceConfig cosXmlServiceConfig = new CosXmlServiceConfig.Builder()
                     .setAppidAndRegion(String.valueOf(cosAppId), uploadRegion)
                     .setDebuggable(true)
-                    .setConnectionTimeout(45000)
-                    .setSocketTimeout(30000)
-                    .build();
+                    .builder();
             cosService = new CosXmlService(context, cosXmlServiceConfig,
                     new TVCDirectCredentialProvider(cosTmpSecretId, cosTmpSecretKey, cosToken, cosExpiredTime));
 
@@ -359,7 +356,7 @@ public class TVCClient {
         reqTime = System.currentTimeMillis();
 
         PutObjectRequest putObjectRequest = new PutObjectRequest(cosBucket, cosCoverPath, uploadInfo.getCoverPath());
-        putObjectRequest.setProgressListener(new QCloudProgressListener() {
+        putObjectRequest.setProgressListener(new CosXmlProgressListener() {
             @Override
             public void onProgress(long progress, long max) {
                 Log.d(TAG, "uploadCosCover->progress: " + progress + "/" + max);
@@ -413,21 +410,9 @@ public class TVCClient {
 
                 Log.i(TAG, "uploadCosVideo begin :  cosBucket " + cosBucket + " cosVideoPath: " + cosVideoPath + "  path " + uploadInfo.getFilePath());
 
-                multipartUploadHelper = new MultipartUploadService(cosService);
-                multipartUploadHelper.setBucket(cosBucket);
-                multipartUploadHelper.setCosPath(cosVideoPath);
-                multipartUploadHelper.setSliceSize(1024 * 1024);
-                multipartUploadHelper.setSrcPath(uploadInfo.getFilePath());
-                multipartUploadHelper.setProgressListener(new QCloudProgressListener() {
-                    @Override
-                    public void onProgress(long progress, long max) {
-                        notifyUploadProgress(progress, max);
-                    }
-                });
-
                 try {
                     CosXmlResult result;
-                    ResumeData resumeData = new ResumeData();
+                    UploadService.ResumeData resumeData = new UploadService.ResumeData();
                     resumeData.bucket = cosBucket;
                     resumeData.cosPath = cosVideoPath;
                     resumeData.srcPath = uploadInfo.getFilePath();
@@ -442,7 +427,16 @@ public class TVCClient {
                         setResumeData(uploadInfo.getFilePath(), vodSessionKey, uploadId);
                         resumeData.uploadId = uploadId;
                     }
-                    result = multipartUploadHelper.resume(resumeData);
+
+                    cosUploadHelper = new UploadService(cosService, resumeData);
+                    cosUploadHelper.setProgressListener(new CosXmlProgressListener() {
+                        @Override
+                        public void onProgress(long progress, long max) {
+                            notifyUploadProgress(progress, max);
+                        }
+                    });
+
+                    result = cosUploadHelper.resume(resumeData);
                     //分片上传完成之后清空本地缓存的断点续传信息
                     setResumeData(uploadInfo.getFilePath(), "", "");
                     txReport(TVCConstants.UPLOAD_EVENT_ID_COS_UPLOAD, 0, "", reqTime, System.currentTimeMillis() - reqTime, uploadInfo.getFileSize(), uploadInfo.getFileType(), uploadInfo.getFileName());
@@ -453,14 +447,17 @@ public class TVCClient {
                     startUploadCoverFile(result);
                 } catch (CosXmlClientException e) {
                     Log.w(TAG,"CosXmlClientException =" + e.getMessage());
-                    txReport(TVCConstants.UPLOAD_EVENT_ID_COS_UPLOAD, TVCConstants.ERR_UPLOAD_VIDEO_FAILED, "HTTP Code:" + e.getMessage(), reqTime, System.currentTimeMillis() - reqTime, uploadInfo.getFileSize(), uploadInfo.getFileType(), uploadInfo.getFileName());
-                    if (!TVCUtils.isNetworkAvailable(context) && busyFlag) {
+                    txReport(TVCConstants.UPLOAD_EVENT_ID_COS_UPLOAD, TVCConstants.ERR_UPLOAD_VIDEO_FAILED, "CosXmlClientException:" + e.getMessage(), reqTime, System.currentTimeMillis() - reqTime, uploadInfo.getFileSize(), uploadInfo.getFileType(), uploadInfo.getFileName());
+                	//网络中断导致的
+                    if (!TVCUtils.isNetworkAvailable(context)) {
+                        notifyUploadFailed(TVCConstants.ERR_UPLOAD_VIDEO_FAILED, "cos upload video error: network unreachable");
+                    } else if (busyFlag) { //其他错误，非主动取消
                         notifyUploadFailed(TVCConstants.ERR_UPLOAD_VIDEO_FAILED, "cos upload video error:" + e.getMessage());
                         setResumeData(uploadInfo.getFilePath(), "", "");
                     }
                 } catch (CosXmlServiceException e) {
-                    Log.w(TAG,"QCloudServiceException =" + e.toString());
-                    txReport(TVCConstants.UPLOAD_EVENT_ID_COS_UPLOAD, TVCConstants.ERR_UPLOAD_VIDEO_FAILED, "HTTP Code:" + e.getMessage(), reqTime, System.currentTimeMillis() - reqTime, uploadInfo.getFileSize(), uploadInfo.getFileType(), uploadInfo.getFileName());
+                    Log.w(TAG,"CosXmlServiceException =" + e.toString());
+                    txReport(TVCConstants.UPLOAD_EVENT_ID_COS_UPLOAD, TVCConstants.ERR_UPLOAD_VIDEO_FAILED, "CosXmlServiceException:" + e.getMessage(), reqTime, System.currentTimeMillis() - reqTime, uploadInfo.getFileSize(), uploadInfo.getFileType(), uploadInfo.getFileName());
                     // 临时密钥过期，重新申请一次临时密钥，不中断上传
                     if(e.getErrorCode().equalsIgnoreCase("RequestTimeTooSkewed")) {
                         getCosUploadInfo(uploadInfo, vodSessionKey);

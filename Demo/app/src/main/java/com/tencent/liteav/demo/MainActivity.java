@@ -11,6 +11,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 
 import com.tencent.liteav.demo.common.widget.ModuleEntryItemView;
+import com.tencent.liteav.demo.play.NewVodPlayerActivity;
 import com.tencent.liteav.demo.shortvideo.choose.TCVideoChooseActivity;
 import com.tencent.liteav.demo.videorecord.TCVideoSettingActivity;
 
@@ -65,6 +66,7 @@ public class MainActivity extends Activity {
         }
 
         private void createData() {
+            mData.add(new ItemInfo("点播播放器", R.drawable.play, NewVodPlayerActivity.class));
             mData.add(new ItemInfo("短视频录制", R.drawable.video, TCVideoSettingActivity.class));
             mData.add(new ItemInfo("短视频特效", R.drawable.cut, TCVideoChooseActivity.class));
             mData.add(new ItemInfo("短视频拼接", R.drawable.composite, TCVideoChooseActivity.class));

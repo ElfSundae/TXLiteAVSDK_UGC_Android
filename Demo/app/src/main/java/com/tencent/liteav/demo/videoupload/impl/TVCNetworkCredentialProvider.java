@@ -6,10 +6,10 @@ package com.tencent.liteav.demo.videoupload.impl;
 
 import android.text.TextUtils;
 
-import com.tencent.qcloud.core.network.auth.BasicLifecycleCredentialProvider;
-import com.tencent.qcloud.core.network.auth.BasicQCloudCredentials;
-import com.tencent.qcloud.core.network.auth.QCloudLifecycleCredentials;
-import com.tencent.qcloud.core.network.exception.QCloudClientException;
+import com.tencent.qcloud.core.auth.BasicLifecycleCredentialProvider;
+import com.tencent.qcloud.core.auth.BasicQCloudCredentials;
+import com.tencent.qcloud.core.auth.QCloudLifecycleCredentials;
+import com.tencent.qcloud.core.common.QCloudClientException;
 import com.tencent.rtmp.TXLog;
 
 import org.json.JSONException;

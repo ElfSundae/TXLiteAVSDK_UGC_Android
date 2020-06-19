@@ -1157,6 +1157,7 @@ public class TCVideoRecordActivity extends Activity implements View.OnClickListe
                 }
                 break;
             case BeautySettingPannel.BEAUTYPARAM_BEAUTY_STYLE:
+                mBeautyParams.mBeautyStyle = params.mBeautyStyle;
                 if (mTXCameraRecord != null) {
                     mTXCameraRecord.setBeautyStyle(params.mBeautyStyle);
                 }

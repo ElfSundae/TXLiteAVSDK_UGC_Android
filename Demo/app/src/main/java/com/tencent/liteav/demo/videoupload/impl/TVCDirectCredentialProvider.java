@@ -1,9 +1,9 @@
 package com.tencent.liteav.demo.videoupload.impl;
 
-import com.tencent.qcloud.core.network.auth.BasicLifecycleCredentialProvider;
-import com.tencent.qcloud.core.network.auth.QCloudLifecycleCredentials;
-import com.tencent.qcloud.core.network.auth.SessionQCloudCredentials;
-import com.tencent.qcloud.core.network.exception.QCloudClientException;
+import com.tencent.qcloud.core.auth.BasicLifecycleCredentialProvider;
+import com.tencent.qcloud.core.auth.QCloudLifecycleCredentials;
+import com.tencent.qcloud.core.auth.SessionQCloudCredentials;
+import com.tencent.qcloud.core.common.QCloudClientException;
 
 /**
  * Created by carolsuo on 2017/10/9.

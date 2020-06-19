@@ -4,7 +4,7 @@ package com.tencent.liteav.demo.videoupload.impl;
  * 视频上传常量定义
  */
 public class TVCConstants {
-    public static final String TVCVERSION = "1.0.1.1";
+    public static final String TVCVERSION = "1.0.3.1";
 
     //网络类型
     public static final int NETTYPE_NONE = 0;

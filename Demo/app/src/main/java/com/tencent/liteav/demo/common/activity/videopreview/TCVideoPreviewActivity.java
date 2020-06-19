@@ -33,6 +33,7 @@ import com.tencent.rtmp.ITXLivePlayListener;
 import com.tencent.rtmp.TXLiveConstants;
 import com.tencent.rtmp.TXLivePlayConfig;
 import com.tencent.rtmp.TXLivePlayer;
+import com.tencent.rtmp.TXLog;
 import com.tencent.rtmp.ui.TXCloudVideoView;
 
 import java.io.File;
@@ -212,11 +213,12 @@ public class TCVideoPreviewActivity extends Activity implements View.OnClickList
         txugcPublish.setListener(new TXUGCPublishTypeDef.ITXVideoPublishListener() {
             @Override
             public void onPublishProgress(long uploadBytes, long totalBytes) {
-
+                TXLog.d(TAG, "onPublishProgress [" + uploadBytes + "/" + totalBytes +"]");
             }
 
             @Override
             public void onPublishComplete(TXUGCPublishTypeDef.TXPublishResult result) {
+                TXLog.d(TAG, "onPublishComplete [" + result.retCode + "/" + (result.retCode == 0? result.videoURL: result.descMsg) +"]");
 
             }
         });

@@ -137,7 +137,7 @@
                 android:layout_below="@id/record_time"
                 style="@android:style/Widget.ProgressBar.Horizontal"
                 android:progressDrawable="@drawable/record_progress"
-                android:max="100"
+                android:max="60"
                 android:progress="0" />
 
             <LinearLayout

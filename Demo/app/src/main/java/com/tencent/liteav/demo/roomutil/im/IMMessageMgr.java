@@ -6,6 +6,7 @@ import android.support.annotation.NonNull;
 import android.util.Log;
 
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import com.google.gson.JsonSyntaxException;
 import com.tencent.imsdk.TIMCallBack;
 import com.tencent.imsdk.TIMConnListener;
@@ -34,24 +35,75 @@ import java.util.List;
  */
 
 public class IMMessageMgr implements TIMMessageListener {
-
     private static final String TAG = IMMessageMgr.class.getSimpleName();
 
-    private Context             mContext;
-    private Handler             mHandler;
-    private static boolean      mConnectSuccess = false;
-    private boolean             mLoginSuccess = false;
+    private Context                         mContext;
+    private Handler                         mHandler;
 
-    private String              mSelfUserID;
-    private String              mSelfUserSig;
-    private int                 mAppID;
-    private boolean             mInGroup;
-    private String              mGroupID;
-    private String              mGroupName;
-    private TIMSdkConfig        mTIMSdkConfig;
-    private IMMessageConnCallback  mIMConnListener;
-    private IMMessageLoginCallback mIMLoginListener;
-    private IMMessageCallback      mMessageListener;
+    private static boolean                  mConnectSuccess = false;
+    private boolean                         mLoginSuccess = false;
+
+    private String                          mSelfUserID;
+    private String                          mSelfUserSig;
+    private String                          mGroupID;
+
+    private TIMSdkConfig                    mTIMSdkConfig;
+    private IMMessageConnCallback           mIMConnListener;
+    private IMMessageLoginCallback          mIMLoginListener;
+    private IMMessageCallback               mMessageListener;
+
+    /**
+     * 函数级公共Callback定义
+     */
+    public interface Callback{
+        void onError(int code, String errInfo);
+        void onSuccess(Object ...args);
+    }
+
+    /**
+     * 模块回调Listener定义
+     */
+    public interface IMMessageListener {
+        /**
+         * IM连接成功
+         */
+        void onConnected();
+
+        /**
+         * IM断开连接
+         */
+        void onDisconnected();
+
+        /**
+         * IM群组里推流者成员变化通知
+         */
+        void onPusherChanged();
+
+        /**
+         * 收到群文本消息
+         */
+        void onGroupTextMessage(String groupID, String senderID, String userName, String headPic, String message);
+
+        /**
+         * 收到自定义的群消息
+         */
+        void onGroupCustomMessage(String groupID, String senderID, String message);
+
+        /**
+         * 收到自定义的C2C消息
+         */
+        void onC2CCustomMessage(String sendID, String message);
+
+        /**
+         * IM群组销毁回调
+         */
+        void onGroupDestroyed();
+
+        /**
+         * 日志回调
+         */
+        void onDebugLog(String log);
+    }
 
     public IMMessageMgr(final Context context) {
         this.mContext = context.getApplicationContext();
@@ -59,25 +111,35 @@ public class IMMessageMgr implements TIMMessageListener {
         this.mMessageListener = new IMMessageCallback(null);
     }
 
+    /**
+     * 设置回调
+     * @param listener
+     */
     public void setIMMessageListener(IMMessageListener listener){
         this.mMessageListener.setListener(listener);
     }
 
-    public void initialize(final String userID,
-                           final String userSig,
-                           final int appID, final Callback callback){
-
+    /**
+     * 初始化
+     * @param userID    用户ID
+     * @param userSig   签名
+     * @param appID     appID
+     * @param callback
+     */
+    public void initialize(final String userID, final String userSig, final int appID, final Callback callback){
         if (userID == null || userSig == null) {
             mMessageListener.onDebugLog("参数错误，请检查 UserID， userSig 是否为空！");
             callback.onError(-1, "参数错误");
             return;
         }
 
-        final long initializeStartTS = System.currentTimeMillis(); //监控下 IM 初始化时间
+        this.mSelfUserID  = userID;
+        this.mSelfUserSig = userSig;
 
         this.mHandler.post(new Runnable() {
             @Override
             public void run() {
+                long initializeStartTS = System.currentTimeMillis();
                 mIMConnListener = new IMMessageConnCallback(initializeStartTS, callback);
 
                 mTIMSdkConfig = new TIMSdkConfig(appID);
@@ -86,34 +148,38 @@ public class IMMessageMgr implements TIMMessageListener {
 
                 TIMManager.getInstance().addMessageListener(IMMessageMgr.this);
                 if( TIMManager.getInstance().init(mContext, mTIMSdkConfig) ){
-                    updateLoginInfo(userID, userSig, appID);
                     login(new Callback() {
                         @Override
                         public void onError(int code, String errInfo) {
-                            print("login failed: %s(%d)", errInfo, code);
+                            printDebugLog("login failed: %s(%d)", errInfo, code);
                             mLoginSuccess = false;
                             callback.onError(code, "IM登录失败");
                         }
 
                         @Override
                         public void onSuccess(Object... args) {
-                            print("login success");
+                            printDebugLog("login success");
                             mLoginSuccess = true;
+                            mConnectSuccess = true;
                             callback.onSuccess();
                         }
                     });
                 }
                 else {
-                    print("init failed");
+                    printDebugLog("init failed");
                     callback.onError(-1, "IM初始化失败");
                 }
             }
         });
     }
 
+    /**
+     * 反初始化
+     */
     public void unInitialize(){
         mContext = null;
         mHandler = null;
+
         if (mTIMSdkConfig != null) {
             mTIMSdkConfig.setConnectionListener(null);
             mTIMSdkConfig = null;
@@ -130,11 +196,17 @@ public class IMMessageMgr implements TIMMessageListener {
             mMessageListener.setListener(null);
             mMessageListener = null;
         }
+
         TIMManager.getInstance().removeMessageListener(IMMessageMgr.this);
         logout(null);
     }
 
-    @Deprecated
+    /**
+     * 创建IM群组
+     * @param groupId   群ID
+     * @param groupName 群名称
+     * @param callback
+     */
     public void createGroup(final String groupId, final String groupName, final Callback callback){
         if (!mConnectSuccess || !mLoginSuccess){
             mMessageListener.onDebugLog("[createGroup] IM 没有初始化");
@@ -151,14 +223,14 @@ public class IMMessageMgr implements TIMMessageListener {
                 TIMGroupManager.getInstance().createGroup(param, new TIMValueCallBack<String>() {
                     @Override
                     public void onError(int i, String s) {
-                        print("创建群 \"%s(%s)\" 失败: %s(%d)", groupName, groupId, s, i);
+                        printDebugLog("创建群 \"%s(%s)\" 失败: %s(%d)", groupName, groupId, s, i);
                         callback.onError(i, s);
                     }
 
                     @Override
                     public void onSuccess(String s) {
-                        print("创建群 \"%s(%s)\" 成功", groupName, groupId);
-                        updateGroup(groupId, groupName, false);
+                        printDebugLog("创建群 \"%s(%s)\" 成功", groupName, groupId);
+                        mGroupID = groupId;
                         callback.onSuccess();
                     }
                 });
@@ -166,6 +238,11 @@ public class IMMessageMgr implements TIMMessageListener {
         });
     }
 
+    /**
+     * 加入IM群组
+     * @param groupId  群ID
+     * @param callback
+     */
     public void jionGroup(final String groupId, final Callback callback){
         if (!mConnectSuccess || !mLoginSuccess){
             mMessageListener.onDebugLog("[jionGroup] IM 没有初始化");
@@ -179,7 +256,7 @@ public class IMMessageMgr implements TIMMessageListener {
                 TIMGroupManager.getInstance().applyJoinGroup(groupId, "who care?", new TIMCallBack() {
                     @Override
                     public void onError(int i, String s) {
-                        print("加入群 {%s} 失败:%s(%d)", groupId, s, i);
+                        printDebugLog("加入群 {%s} 失败:%s(%d)", groupId, s, i);
                         if (i == 10010) {
                             s = "房间已解散";
                         }
@@ -188,8 +265,8 @@ public class IMMessageMgr implements TIMMessageListener {
 
                     @Override
                     public void onSuccess() {
-                        print("加入群 {%s} 成功", groupId);
-                        updateGroup(groupId, null, true);
+                        printDebugLog("加入群 {%s} 成功", groupId);
+                        mGroupID = groupId;
                         callback.onSuccess();
                     }
                 });
@@ -197,6 +274,11 @@ public class IMMessageMgr implements TIMMessageListener {
         });
     }
 
+    /**
+     * 退出IM群组
+     * @param groupId  群ID
+     * @param callback
+     */
     public void quitGroup(final String groupId, final Callback callback){
         if (!mConnectSuccess || !mLoginSuccess){
             mMessageListener.onDebugLog("[quitGroup] IM 没有初始化");
@@ -211,19 +293,19 @@ public class IMMessageMgr implements TIMMessageListener {
                     @Override
                     public void onError(int i, String s) {
                         if (i == 10010) {
-                            print("群 {%s} 已经解散了", groupId);
+                            printDebugLog("群 {%s} 已经解散了", groupId);
                             onSuccess();
                         }
                         else{
-                            print("退出群 {%s} 失败： %s(%d)", groupId, s, i);
+                            printDebugLog("退出群 {%s} 失败： %s(%d)", groupId, s, i);
                             callback.onError(i, s);
                         }
                     }
 
                     @Override
                     public void onSuccess() {
-                        print("退出群 {%s} 成功", groupId);
-                        updateGroup(groupId, null, false);
+                        printDebugLog("退出群 {%s} 成功", groupId);
+                        mGroupID = groupId;
                         callback.onSuccess();
                     }
                 });
@@ -231,6 +313,11 @@ public class IMMessageMgr implements TIMMessageListener {
         });
     }
 
+    /**
+     * 销毁IM群组
+     * @param groupId  群ID
+     * @param callback
+     */
     public void destroyGroup(final String groupId, final Callback callback){
         if (!mConnectSuccess || !mLoginSuccess){
             mMessageListener.onDebugLog("IM 没有初始化");
@@ -244,14 +331,14 @@ public class IMMessageMgr implements TIMMessageListener {
                 TIMGroupManager.getInstance().deleteGroup(groupId, new TIMCallBack() {
                     @Override
                     public void onError(int i, String s) {
-                        print("解散群 {%s} 失败：%s(%d)", groupId, s, i);
+                        printDebugLog("解散群 {%s} 失败：%s(%d)", groupId, s, i);
                         callback.onError(i, s);
                     }
 
                     @Override
                     public void onSuccess() {
-                        print("解散群 {%s} 成功", groupId);
-                        updateGroup(groupId, null, false);
+                        printDebugLog("解散群 {%s} 成功", groupId);
+                        mGroupID = groupId;
                         callback.onSuccess();
                     }
                 });
@@ -259,13 +346,16 @@ public class IMMessageMgr implements TIMMessageListener {
         });
     }
 
-    public void sendGroupMessage(@NonNull String userName, @NonNull String headPic, @NonNull String text, Callback callback){
-       sendGroupMessage(userName, headPic, text, mGroupID, callback);
-    }
-
-    public void sendGroupMessage(final @NonNull String userName, final @NonNull String headPic, final @NonNull String text, final String groupId, final Callback callback){
+    /**
+     * 发送IM群文本消息
+     * @param userName  发送者用户名
+     * @param headPic   发送者头像
+     * @param text      文本内容
+     * @param callback
+     */
+    public void sendGroupTextMessage(final @NonNull String userName, final @NonNull String headPic, final @NonNull String text, final Callback callback){
         if (!mConnectSuccess || !mLoginSuccess){
-            mMessageListener.onDebugLog("[sendGroupMessage] IM 没有初始化");
+            mMessageListener.onDebugLog("[sendGroupTextMessage] IM 没有初始化");
             if (callback != null)
                 callback.onError(-1, "IM 没有初始化");
             return;
@@ -274,20 +364,14 @@ public class IMMessageMgr implements TIMMessageListener {
         this.mHandler.post(new Runnable() {
             @Override
             public void run() {
-                TIMConversation conversation = TIMManager.getInstance().getConversation(TIMConversationType.Group, groupId);
-
                 TIMMessage message = new TIMMessage();
-
                 try {
-                    UserInfo userInfo = new UserInfo();
-                    userInfo.nickName = userName;
-                    userInfo.headPic = headPic;
-
-                    TextHeadMsg txtHeadMsg = new TextHeadMsg();
+                    CommonJson<UserInfo> txtHeadMsg = new CommonJson<UserInfo>();
                     txtHeadMsg.cmd = "CustomTextMsg";
-                    txtHeadMsg.data = userInfo;
-
-                    String strCmdMsg = new Gson().toJson(txtHeadMsg);
+                    txtHeadMsg.data = new UserInfo();
+                    txtHeadMsg.data.nickName = userName;
+                    txtHeadMsg.data.headPic = headPic;
+                    String strCmdMsg = new Gson().toJson(txtHeadMsg, new TypeToken<CommonJson<UserInfo>>(){}.getType());
 
                     TIMCustomElem customElem = new TIMCustomElem();
                     customElem.setData(strCmdMsg.getBytes("UTF-8"));
@@ -299,17 +383,18 @@ public class IMMessageMgr implements TIMMessageListener {
                     message.addElement(textElem);
                 }
                 catch (Exception e) {
-                    print("[sendGroupMessage] 发送群{%s}消息失败，组包异常", groupId);
+                    printDebugLog("[sendGroupTextMessage] 发送群{%s}消息失败，组包异常", mGroupID);
                     if (callback != null) {
                         callback.onError(-1, "发送群消息失败");
                     }
                     return;
                 }
 
+                TIMConversation conversation = TIMManager.getInstance().getConversation(TIMConversationType.Group, mGroupID);
                 conversation.sendMessage(message, new TIMValueCallBack<TIMMessage>() {
                     @Override
                     public void onError(int i, String s) {
-                        print("[sendGroupMessage] 发送群{%s}消息失败: %s(%d)", groupId, s, i);
+                        printDebugLog("[sendGroupTextMessage] 发送群{%s}消息失败: %s(%d)", mGroupID, s, i);
 
                         if (callback != null)
                             callback.onError(i, s);
@@ -317,7 +402,112 @@ public class IMMessageMgr implements TIMMessageListener {
 
                     @Override
                     public void onSuccess(TIMMessage timMessage) {
-                        print("[sendGroupMessage] 发送群消息成功");
+                        printDebugLog("[sendGroupTextMessage] 发送群消息成功");
+
+                        if (callback != null)
+                            callback.onSuccess();
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * 发送自定义群消息
+     * @param content   自定义消息的内容
+     * @param callback
+     */
+    public void sendGroupCustomMessage(final @NonNull String content, final Callback callback) {
+        if (!mConnectSuccess || !mLoginSuccess){
+            mMessageListener.onDebugLog("[sendGroupCustomMessage] IM 没有初始化");
+            if (callback != null)
+                callback.onError(-1, "IM 没有初始化");
+            return;
+        }
+
+        this.mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                TIMMessage message = new TIMMessage();
+                try {
+                    TIMCustomElem customElem = new TIMCustomElem();
+                    customElem.setData(content.getBytes("UTF-8"));
+                    message.addElement(customElem);
+                }
+                catch (Exception e) {
+                    printDebugLog("[sendGroupCustomMessage] 发送自定义群{%s}消息失败，组包异常", mGroupID);
+                    if (callback != null) {
+                        callback.onError(-1, "发送CC消息失败");
+                    }
+                    return;
+                }
+
+                TIMConversation conversation = TIMManager.getInstance().getConversation(TIMConversationType.Group, mGroupID);
+                conversation.sendMessage(message, new TIMValueCallBack<TIMMessage>() {
+                    @Override
+                    public void onError(int i, String s) {
+                        printDebugLog("[sendGroupCustomMessage] 发送自定义群{%s}消息失败: %s(%d)", mGroupID, s, i);
+
+                        if (callback != null)
+                            callback.onError(i, s);
+                    }
+
+                    @Override
+                    public void onSuccess(TIMMessage timMessage) {
+                        printDebugLog("[sendGroupCustomMessage] 发送自定义群消息成功");
+
+                        if (callback != null)
+                            callback.onSuccess();
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * 发送CC（端到端）自定义消息
+     * @param toUserID  接收者userID
+     * @param content   自定义消息的内容
+     * @param callback
+     */
+    public void sendC2CCustomMessage(final @NonNull String toUserID, final @NonNull String content, final Callback callback) {
+        if (!mConnectSuccess || !mLoginSuccess){
+            mMessageListener.onDebugLog("[sendCustomMessage] IM 没有初始化");
+            if (callback != null)
+                callback.onError(-1, "IM 没有初始化");
+            return;
+        }
+
+        this.mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                TIMMessage message = new TIMMessage();
+                try {
+                    TIMCustomElem customElem = new TIMCustomElem();
+                    customElem.setData(content.getBytes("UTF-8"));
+                    message.addElement(customElem);
+                }
+                catch (Exception e) {
+                    printDebugLog("[sendCustomMessage] 发送CC{%s}消息失败，组包异常", toUserID);
+                    if (callback != null) {
+                        callback.onError(-1, "发送CC消息失败");
+                    }
+                    return;
+                }
+
+                TIMConversation conversation = TIMManager.getInstance().getConversation(TIMConversationType.C2C, toUserID);
+                conversation.sendMessage(message, new TIMValueCallBack<TIMMessage>() {
+                    @Override
+                    public void onError(int i, String s) {
+                        printDebugLog("[sendCustomMessage] 发送CC{%s}消息失败: %s(%d)", toUserID, s, i);
+
+                        if (callback != null)
+                            callback.onError(i, s);
+                    }
+
+                    @Override
+                    public void onSuccess(TIMMessage timMessage) {
+                        printDebugLog("[sendCustomMessage] 发送CC消息成功");
 
                         if (callback != null)
                             callback.onSuccess();
@@ -329,13 +519,12 @@ public class IMMessageMgr implements TIMMessageListener {
 
     @Override
     public boolean onNewMessages(List<TIMMessage> list) {
-
         for (TIMMessage message : list) {
 
             for (int i = 0; i < message.getElementCount(); i++) {
                 TIMElem element = message.getElement(i);
 
-                print("onNewMessage type = %s", element.getType());
+                printDebugLog("onNewMessage type = %s", element.getType());
 
                 switch (element.getType()){
 
@@ -345,7 +534,7 @@ public class IMMessageMgr implements TIMMessageListener {
                         switch (systemElemType){
 
                             case TIM_GROUP_SYSTEM_DELETE_GROUP_TYPE:{
-                                print("onNewMessage subType = %s", systemElemType);
+                                printDebugLog("onNewMessage subType = %s", systemElemType);
                                 if (mMessageListener != null)
                                     mMessageListener.onGroupDestroyed();
                                 return true;
@@ -355,16 +544,16 @@ public class IMMessageMgr implements TIMMessageListener {
 
                                 byte[] userData = ((TIMGroupSystemElem) element).getUserData();
                                 if (userData == null || userData.length == 0){
-                                    print("userData == null");
+                                    printDebugLog("userData == null");
                                     return true;
                                 }
 
                                 String data = new String(userData);
-                                print("onNewMessage subType = %s content = %s", systemElemType, data);
+                                printDebugLog("onNewMessage subType = %s content = %s", systemElemType, data);
                                 try {
-                                    CommandMsg msg = new Gson().fromJson(data, CommandMsg.class);
-                                    if (msg.cmd.equals("notifyPusherChange")) {
-                                        mMessageListener.onMemberChanged();
+                                    CommonJson<Object> commonJson = new Gson().fromJson(data, new TypeToken<CommonJson<Object>>(){}.getType());
+                                    if (commonJson.cmd.equals("notifyPusherChange")) {
+                                        mMessageListener.onPusherChanged();
                                     }
                                 } catch (JsonSyntaxException e) {
                                     e.printStackTrace();
@@ -379,24 +568,32 @@ public class IMMessageMgr implements TIMMessageListener {
                     case Custom: {
                         byte[] userData = ((TIMCustomElem) element).getData();
                         if (userData == null || userData.length == 0){
-                            print("userData == null");
+                            printDebugLog("userData == null");
                             return true;
                         }
 
                         String data = new String(userData);
-                        print("onNewMessage subType = Custom content = %s", data);
+                        printDebugLog("onNewMessage subType = Custom content = %s", data);
                         try {
-                            TextHeadMsg txtHeadMsg = new Gson().fromJson(data, TextHeadMsg.class);
-                            if (txtHeadMsg.cmd.equalsIgnoreCase("CustomTextMsg")) {
-                                ++i;
-                                UserInfo userInfo = txtHeadMsg.data;
-                                if (userInfo != null && i < message.getElementCount()) {
-                                    TIMElem nextElement = message.getElement(i);
-                                    TIMTextElem textElem = (TIMTextElem) nextElement;
-                                    String text = textElem.getText();
-                                    if (text != null){
-                                        mMessageListener.onGroupMessage(message.getSender(), userInfo.nickName, userInfo.headPic, text);
+                            CommonJson<Object> commonJson =  new Gson().fromJson(data, new TypeToken<CommonJson<Object>>(){}.getType());
+                            if (commonJson.cmd != null) {
+                                if (commonJson.cmd.equalsIgnoreCase("CustomTextMsg")) {
+                                    ++i;
+                                    UserInfo userInfo = new Gson().fromJson(new Gson().toJson(commonJson.data), UserInfo.class);
+                                    if (userInfo != null && i < message.getElementCount()) {
+                                        TIMElem nextElement = message.getElement(i);
+                                        TIMTextElem textElem = (TIMTextElem) nextElement;
+                                        String text = textElem.getText();
+                                        if (text != null){
+                                            mMessageListener.onGroupTextMessage(mGroupID, message.getSender(), userInfo.nickName, userInfo.headPic, text);
+                                        }
                                     }
+                                }
+                                else if (commonJson.cmd.equalsIgnoreCase("linkmic")) {
+                                    mMessageListener.onC2CCustomMessage(message.getSender(), new Gson().toJson(commonJson.data));
+                                }
+                                else if (commonJson.cmd.equalsIgnoreCase("CustomCmdMsg")) {
+                                    mMessageListener.onGroupCustomMessage(mGroupID, message.getSender(),  new Gson().toJson(commonJson.data));
                                 }
                             }
                         } catch (JsonSyntaxException e) {
@@ -434,25 +631,13 @@ public class IMMessageMgr implements TIMMessageListener {
         TIMManager.getInstance().logout(null);
     }
 
-    private void updateLoginInfo(String userId, String userSig, int appId){
-        this.mSelfUserID  = userId;
-        this.mSelfUserSig = userSig;
-        this.mAppID       = appId;
-    }
-
-    private void updateGroup(String groupId, String groupName, boolean mInGroup){
-        this.mGroupID   = groupId;
-        this.mGroupName = groupName;
-        this.mInGroup   = mInGroup;
-    }
-
-    private void print(String format, Object ...args){
-        String s = null;
+    private void printDebugLog(String format, Object ...args){
+        String log;
         try {
-            s = String.format(format, args);
-            Log.e(TAG, s);
+            log = String.format(format, args);
+            Log.e(TAG, log);
             if (mMessageListener != null) {
-                mMessageListener.onDebugLog(s);
+                mMessageListener.onDebugLog(log);
             }
         } catch (FormatFlagsConversionMismatchException e) {
             e.printStackTrace();
@@ -462,7 +647,7 @@ public class IMMessageMgr implements TIMMessageListener {
     /**
      * 辅助类 IM Connect Listener
      */
-    private final class IMMessageConnCallback implements TIMConnListener {
+    private class IMMessageConnCallback implements TIMConnListener {
         private long            initializeStartTS = 0;
         private Callback        callback;
         
@@ -478,15 +663,14 @@ public class IMMessageMgr implements TIMMessageListener {
         
         @Override
         public void onConnected() {
-            print("connect success，initialize() time cost %.2f secs", (System.currentTimeMillis() - initializeStartTS) / 1000.0);
+            printDebugLog("connect success，initialize() time cost %.2f secs", (System.currentTimeMillis() - initializeStartTS) / 1000.0);
             mMessageListener.onConnected();
-
             mConnectSuccess = true;
         }
 
         @Override
         public void onDisconnected(int i, String s) {
-            print("disconnect: %s(%d)", s, i);
+            printDebugLog("disconnect: %s(%d)", s, i);
             if (mLoginSuccess) {
                 mMessageListener.onDisconnected();
             }
@@ -498,7 +682,7 @@ public class IMMessageMgr implements TIMMessageListener {
 
         @Override
         public void onWifiNeedAuth(String s) {
-            print("onWifiNeedAuth(): %s", s);
+            printDebugLog("onWifiNeedAuth(): %s", s);
             if (mLoginSuccess){
                 mMessageListener.onDisconnected();
             }
@@ -512,7 +696,7 @@ public class IMMessageMgr implements TIMMessageListener {
     /**
      * 辅助类 IM Login Listener
      */
-    private final class IMMessageLoginCallback implements TIMCallBack {
+    private class IMMessageLoginCallback implements TIMCallBack {
         private long      loginStartTS ;
         private Callback  callback;
         
@@ -535,7 +719,7 @@ public class IMMessageMgr implements TIMMessageListener {
 
         @Override
         public void onSuccess() {
-            print("login success, time cost %.2f secs", (System.currentTimeMillis()- loginStartTS) / 1000.0);
+            printDebugLog("login success, time cost %.2f secs", (System.currentTimeMillis()- loginStartTS) / 1000.0);
             if (callback != null) {
                 callback.onSuccess();
             }
@@ -545,8 +729,7 @@ public class IMMessageMgr implements TIMMessageListener {
     /**
      * 辅助类 IM Message Listener
      */
-    private final class IMMessageCallback implements IMMessageListener {
-
+    private class IMMessageCallback implements IMMessageListener {
         private IMMessageListener listener;
 
         public IMMessageCallback(IMMessageListener listener) {
@@ -579,12 +762,12 @@ public class IMMessageMgr implements TIMMessageListener {
             });
         }
         @Override
-        public void onMemberChanged() {
+        public void onPusherChanged() {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
                     if (listener != null)
-                        listener.onMemberChanged();
+                        listener.onPusherChanged();
                 }
             });
         }
@@ -612,46 +795,46 @@ public class IMMessageMgr implements TIMMessageListener {
         }
 
         @Override
-        public void onGroupMessage(final String senderId, final String userName, final String headPic, final String message) {
+        public void onGroupTextMessage(final String roomID, final String senderID, final String userName, final String headPic, final String message) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
                     if (listener != null)
-                        listener.onGroupMessage(senderId, userName, headPic, message);
+                        listener.onGroupTextMessage(roomID, senderID, userName, headPic, message);
+                }
+            });
+        }
+
+        @Override
+        public void onGroupCustomMessage(final String groupID, final String senderID, final String message) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (listener != null)
+                        listener.onGroupCustomMessage(groupID, senderID, message);
+                }
+            });
+        }
+
+        @Override
+        public void onC2CCustomMessage(final String senderID, final String message) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (listener != null)
+                        listener.onC2CCustomMessage(senderID, message);
                 }
             });
         }
     }
 
-
-    public interface Callback{
-        void onError(int code, String errInfo);
-        void onSuccess(Object ...args);
-    }
-
-
-    public interface IMMessageListener {
-        void onConnected();
-        void onDisconnected();
-        void onMemberChanged();
-        void onGroupDestroyed();
-        void onGroupMessage(String senderId, String userName, String headPic, String message);
-        void onDebugLog(String line);
-    }
-
-
-    private static final class CommandMsg{
+    private static class CommonJson<T> {
         String cmd;
-        String data;
+        T      data;
     }
 
     private static final class UserInfo {
         String nickName;
         String headPic;
-    }
-
-    private static final class TextHeadMsg {
-        String cmd;
-        UserInfo data;
     }
 }

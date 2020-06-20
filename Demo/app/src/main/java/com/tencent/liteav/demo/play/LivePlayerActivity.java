@@ -367,6 +367,7 @@ public class LivePlayerActivity extends Activity implements ITXLivePlayListener,
     }
 
     private void streamRecord(boolean runFlag) {
+        mRecordFlag = runFlag;
         if (runFlag) {
             mLivePlayer.setVideoRecordListener(new TXRecordCommon.ITXVideoRecordListener() {
                 @Override
@@ -376,10 +377,13 @@ public class LivePlayerActivity extends Activity implements ITXLivePlayListener,
 
                 @Override
                 public void onRecordProgress(long milliSecond) {
+                    if (mCancelRecordFlag) {
+                        return;
+                    }
                     Log.d(TAG, "onRecordProgress:" + milliSecond);
                     mRecordTimeTV.setText(String.format("%02d:%02d",milliSecond/1000/60, milliSecond/1000%60));
-                    int progress = (int)(milliSecond * 100 / (60 * 1000));
-                    if (progress < 100) {
+                    int progress = (int)(milliSecond  /  1000);
+                    if (progress < 60) {
                         mRecordProgressBar.setProgress(progress);
                     } else {
                         mLivePlayer.stopRecord();
@@ -447,7 +451,8 @@ public class LivePlayerActivity extends Activity implements ITXLivePlayListener,
     @Override
     public void onStop(){
         super.onStop();
-
+        mCancelRecordFlag = true;
+        streamRecord(false);
     }
 
     @Override
@@ -463,8 +468,7 @@ public class LivePlayerActivity extends Activity implements ITXLivePlayListener,
                 findViewById(R.id.record_layout).setVisibility(View.VISIBLE);
                 break;
             case R.id.record:
-                mRecordFlag = !mRecordFlag;
-                streamRecord(mRecordFlag);
+                streamRecord(!mRecordFlag);
                 break;
             case R.id.close_record:
                 findViewById(R.id.play_pannel).setVisibility(View.VISIBLE);

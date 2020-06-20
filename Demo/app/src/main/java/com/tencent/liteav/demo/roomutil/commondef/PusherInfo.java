@@ -9,9 +9,24 @@ import android.os.Parcelable;
 
 public class PusherInfo implements Parcelable {
 
+    /**
+     * 用户ID
+     */
     public String   userID;
+
+    /**
+     * 用户昵称
+     */
     public String   userName;
+
+    /**
+     * 用户头像地址
+     */
     public String   userAvatar;
+
+    /**
+     * 低时延拉流地址（带防盗链key）
+     */
     public String   accelerateURL;
 
 

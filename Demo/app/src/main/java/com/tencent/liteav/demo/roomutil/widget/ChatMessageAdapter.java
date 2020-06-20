@@ -8,7 +8,7 @@ import android.widget.BaseAdapter;
 import android.widget.TextView;
 
 import com.tencent.liteav.demo.R;
-import com.tencent.liteav.demo.roomutil.commondef.TextChatMsg;
+import com.tencent.liteav.demo.common.misc.TextChatMsg;
 
 import java.util.List;
 

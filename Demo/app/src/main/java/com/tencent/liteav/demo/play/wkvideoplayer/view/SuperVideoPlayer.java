@@ -99,7 +99,11 @@ public class SuperVideoPlayer extends RelativeLayout {
     private TXCloudVideoView mCloudVideoView;
     private TXVodPlayConfig mPlayConfig;
     private MyHandler mHandler;
+    private OnPlayInfoCallback mOnPlayInfoCallback;
 
+    public void setVideoPlayInfoCallback(OnPlayInfoCallback callback) {
+        mOnPlayInfoCallback = callback;
+    }
 
     private static class MyHandler extends Handler {
         private final WeakReference<SuperVideoPlayer> mPlayer;
@@ -552,7 +556,9 @@ public class SuperVideoPlayer extends RelativeLayout {
                 }
                 getNextInfo();
             }
-
+            if (mOnPlayInfoCallback != null) {
+                mOnPlayInfoCallback.onPlayInfoCallback(event);
+            }
             if (event < 0) {
                 Toast.makeText(mContext, param.getString(TXLiveConstants.EVT_DESCRIPTION), Toast.LENGTH_SHORT).show();
             }
@@ -873,4 +879,9 @@ public class SuperVideoPlayer extends RelativeLayout {
     }
 
     private TXPhoneStateListener mPhoneListener = new TXPhoneStateListener(this);
+
+    public interface OnPlayInfoCallback {
+        void onPlayInfoCallback(int ret);
+    }
+
 }

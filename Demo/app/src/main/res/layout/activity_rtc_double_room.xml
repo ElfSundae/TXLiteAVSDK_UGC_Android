@@ -21,7 +21,7 @@
         app:layout_constraintTop_toTopOf="parent">
 
         <TextView
-            android:id="@+id/rtc_mutil_room_title_textview"
+            android:id="@+id/rtc_double_room_title_textview"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
@@ -33,7 +33,7 @@
             android:textSize="18sp" />
 
         <ImageButton
-            android:id="@+id/rtc_multi_room_back_button"
+            android:id="@+id/rtc_double_room_back_button"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:layout_gravity="left|center_vertical"
@@ -59,7 +59,7 @@
 
 
     <ScrollView
-        android:id="@+id/rtc_mutil_room_global_log_container"
+        android:id="@+id/rtc_double_room_global_log_container"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:visibility="gone"
@@ -70,7 +70,7 @@
         app:layout_constraintTop_toBottomOf="@id/activity_bar">
 
         <TextView
-            android:id="@+id/rtc_multi_room_global_log_textview"
+            android:id="@+id/rtc_double_room_global_log_textview"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@color/transparent"

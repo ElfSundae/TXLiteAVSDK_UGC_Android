@@ -307,12 +307,25 @@ public class NewVodPlayerActivity extends Activity implements View.OnClickListen
                         mVodList.add(param);
 
                         if (mSuperVideoPlayer != null) {
+                            mSuperVideoPlayer.setVideoPlayInfoCallback(mPlayInfoCallback);
                             mSuperVideoPlayer.addVodInfo(param);
                         }
                     }
                 });
         customizeDialog.show();
     }
+
+    private SuperVideoPlayer.OnPlayInfoCallback mPlayInfoCallback = new SuperVideoPlayer.OnPlayInfoCallback() {
+        @Override
+        public void onPlayInfoCallback(int ret) {
+            if (ret < 0) {
+                int index = mVodList.size() - 1;
+                if (index >= 0) {
+                    mVodList.remove(index);
+                }
+            }
+        }
+    };
 
     private void playVideo() {
         mPlayBtnView.setVisibility(View.GONE);
